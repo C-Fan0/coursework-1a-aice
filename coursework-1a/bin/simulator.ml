@@ -149,8 +149,10 @@ match x with
 | Neq -> not (fz)
 | Gt -> (fs = fo) && not fz 
 | Ge -> (fs = fo)
-| Lt -> fs<>fo 
+| Lt -> (fs<>fo)  
 | Le -> (fs<>fo) || fz 
+(* these exact flags are required by the intel spec, and so are required
+in tests. e.g. lack of || fz for ge is intentional*)
 
 
 (* Maps an X86lite address into Some OCaml array index,
@@ -168,8 +170,26 @@ let map_addr (addr:quad) : int option =
     - update the registers and/or memory appropriately
     - set the condition flags
 *)
-let step (m:mach) : unit =
-failwith "step unimplemented"
+let step (m:mach) : unit =  
+  (*psuedo code:*)(*
+  fetch instruction:
+  let INsB0 instruction = fetch(%rip) in <- fetch instruction, e.g. mach.mem.(address of instruct) to get the instruction, then access within the instruction as opcode * operand list
+
+  registers:
+  let operand list operands =  obtain_registers(instruction) in
+  let opcode opcode_temp = obtain_opcode(instruction) in
+
+  simulate instruction execution (aka semantics):
+  let int64 result = execution_func(m, opcode_temp, operands) in <- will require more work/breaking down, could just be a simple interface though
+  Not sure on what the return of execution_func should be yet, or if m needs to be passed in
+
+  update registers and memory:
+  let update_machine(m, results, operands) in 
+
+  let update_condition_flags(m,results) in
+  () <- must return (), which is unit
+  *)
+  failwith "step unimplemented"
 
 (* Runs the machine until the rip register reaches a designated
    memory address. Returns the contents of %rax when the 

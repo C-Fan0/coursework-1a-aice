@@ -100,17 +100,17 @@ let helloworld_textseg =
 let interp_cnd_test (fo, fs, fz) tru () =
   let flags = {fo = fo; fs = fs; fz = fz} in
   let all = [Eq;Neq;Gt;Ge;Lt;Le] in
-  let fls = List.filter (fun c -> not (List.mem c tru)) all in
-  let fn = interp_cnd flags in
+  let fls = List.filter (fun c -> not (List.mem c tru)) all in (*get all flags that should return false*)
+  let fn = interp_cnd flags in 
   let tru' = List.filter fn all in
-  let fls' = List.filter (fun c -> not (List.mem c tru')) all in
-  List.iter (fun c ->
+  let fls' = List.filter (fun c -> not (List.mem c tru')) all in (*get result for allflags that should return false*)
+  List.iter (fun c -> (* checks all that should be true are *)
     if not (List.mem c tru)
     then failwith (Printf.sprintf "o:%b s:%b f:%b %s expected"
       fo fs fz (string_of_cnd c))
     else ()
   ) tru';
-  List.iter (fun c ->
+  List.iter (fun c -> (* checks all that are false are *)
     if not (List.mem c fls)
     then failwith (Printf.sprintf "o:%b s:%b f:%b %s !expected"
       fo fs fz (string_of_cnd c))
