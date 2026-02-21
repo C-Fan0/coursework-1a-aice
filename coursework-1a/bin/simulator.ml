@@ -213,7 +213,20 @@ let cmpq_func (machine : mach) (operands : imm list) : mach =
     else
       failwith "unimplemented"
 
+let setb_func (machine : mach) (operands : imm list) : mach =
+  failwith "unimplemented"
 
+let jmp_func (machine : mach) (operands : imm list) : mach =
+  failwith "unimplemented"
+
+let jmp_cond_func (machine : mach) (operands : imm list) : mach =
+  failwith "unimplemented"
+
+let callq_func (machine : mach) (operands : imm list) : mach =
+  failwith "unimplemented"
+
+let retq_func (machine : mach) (operands : imm list) : mach =
+  failwith "unimplemented"
 
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
