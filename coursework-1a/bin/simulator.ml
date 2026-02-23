@@ -268,8 +268,7 @@ let step (m:mach) : unit =
 
 
   (*From Juan: This is what I made to test my functions. We can switch to having specific functions like fetch() and 
-  execution_func() if you guys think thats cleaner. 
-    Instead of update_machine and update condition flags, I just use write_operand and specific condition flags function for each case. 
+  execution_func() if you guys think thats cleaner. Also note that Im using specific condition flag functions for each case.
   We can discuss more during about how we want to tweak it during Wednesday's lab*)
 
   let rip = m.regs.(rind Rip) in
