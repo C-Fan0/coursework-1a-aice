@@ -186,10 +186,10 @@ let subq_func (machine : mach) (operands : imm list) : int64=
 let cmpq_func (machine : mach) (operands : quad list) : int64= 
   (* count operands, if too many *)
   let (op1, op2) = elements_2 operands in
-  let result = Int64_overflow.sub op2 op2 in
+  let result = Int64_overflow.sub op2 op1 in
 
   (*fo flag*)
-    machine.flags.fo <- result.overflow;
+  machine.flags.fo <- result.overflow;
 
   (*fz flag*)
   if (result.value = 0L) then 
@@ -206,6 +206,7 @@ let cmpq_func (machine : mach) (operands : quad list) : int64=
   0L
 
 let setb_func (machine : mach) (operands : imm list) : int64=
+  (*operand 1 is condition code, second is src*)
   failwith "unimplemented"
 
 let jmp_func (machine : mach) (operands : imm list) : int64=
@@ -217,6 +218,9 @@ let jmp_cond_func (machine : mach) (operands : imm list) : int64=
 let callq_func (machine : mach) (operands : imm list) : int64=
   failwith "unimplemented"
 
+
+
+  (* juan's code*)
 let read_mem (m:mach) (addr:int64) : int64 =
   match map_addr addr with
   | None -> raise X86lite_segfault
