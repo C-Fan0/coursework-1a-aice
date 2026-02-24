@@ -6,7 +6,6 @@
 *)
 
 open X86
-
 (* simulator machine state -------------------------------------------------- *)
 
 let mem_bot = 0x400000L          (* lowest valid address *)
@@ -168,64 +167,56 @@ let rec length l =
   | [] -> 0
   | t :: x -> 1 + length x
 
+let rec elements_2 (l : quad list) : int64 * int64 = 
+  match l with
+  | [op1; op2] -> (op1, op2)
+  | _ -> failwith "incorrect operand count"
 
-let subq_func (machine : mach) (operands : imm list) : mach = 
+let rec elements_1 (l : quad list) : int64  = 
+  match l with
+  | [op1] -> (op1)
+  | _ -> failwith "incorrect operand count"
+
+
+let subq_func (machine : mach) (operands : imm list) : int64= 
   (*for the other guys to do*)
   failwith "unimplemented subq"
 
-let cmpq_func (machine : mach) (operands : imm list) : mach = 
+let cmpq_func (machine : mach) (operands : quad list) : int64= 
   (* count operands, if too many *)
-  let len = length operands in 
-    if (len = 2) then
-      (* asssume subq works this way*)
-      let max = 3 in (*define these*)
-      let min = 2 in
-      let result = subq_func machine operands in
-      (*fo flag*)
-      if (result > max || result < min) then
-        result.flags.fo <- true
-      else
-        result.flags.fo <- false; (* separates sequential expressions like C**)
-      (*fz flag*)
-      if (result = 0) then 
-        result.flags.fz <- true
-      else
-        result.flags.fz <- false;
-      (*fs flag*)
-      if (result (*get bit 1*) = 1) then
-        result.flags.fs <- true
-      else
-        result.flags.fs <- false;
-      result
+  let (op1, op2) = elements_2 operands in
+  let result = Int64_overflow.sub op2 op2 in
 
-      (*
-      this does subq and then changes condition flags basedo n that,
-      DOESN'T user interp cnd
+  (*fo flag*)
+    machine.flags.fo <- result.overflow;
 
-      main issues:
-      use if statements for this
-      fz incredibly easy
-      fs just check bit 0
-      fo harder, need to see if result is larger than max or less than min
-        so store res, then if (res > max || res < min (* a negative value *))
-      *)
-        
-    else
-      failwith "unimplemented"
+  (*fz flag*)
+  if (result.value = 0L) then 
+    machine.flags.fz <- true
+  else
+    machine.flags.fz <- false;
 
-let setb_func (machine : mach) (operands : imm list) : mach =
+  (*fs flag*)
+  if (result.value < 0L) then
+    machine.flags.fs <- true
+  else
+    machine.flags.fs <- false;
+
+  0L
+
+let setb_func (machine : mach) (operands : imm list) : int64=
   failwith "unimplemented"
 
-let jmp_func (machine : mach) (operands : imm list) : mach =
+let jmp_func (machine : mach) (operands : imm list) : int64=
   failwith "unimplemented"
 
-let jmp_cond_func (machine : mach) (operands : imm list) : mach =
+let jmp_cond_func (machine : mach) (operands : imm list) : int64=
   failwith "unimplemented"
 
-let callq_func (machine : mach) (operands : imm list) : mach =
+let callq_func (machine : mach) (operands : imm list) : int64=
   failwith "unimplemented"
 
-let retq_func (machine : mach) (operands : imm list) : mach =
+let retq_func (machine : mach) (operands : imm list) : int64=
   failwith "unimplemented"
 
 (* Simulates one step of the machine:
