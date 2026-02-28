@@ -143,38 +143,266 @@ let sbytes_of_data : data -> sbyte list = function
 let debug_simulator = ref false
 
 (* Interpret a condition code with respect to the given flags. *)
-let interp_cnd {fo; fs; fz} : cnd -> bool = function
+let interp_cnd {fo; fs; fz} : cnd -> bool = fun x ->
+  match x with
   | Eq  -> fz
   | Neq -> not fz
-  | Gt  -> (not fz) && (fs = fo)
+  | Gt  -> (fs = fo) && not fz
   | Ge  -> (fs = fo)
   | Lt  -> (fs <> fo)
-  | Le  -> fz || (fs <> fo)
-
-
+  | Le  -> (fs <> fo) || fz
 
 (* Maps an X86lite address into Some OCaml array index,
    or None if the address is not within the legal address space. *)
 let map_addr (addr:quad) : int option =
-  if addr < mem_bot || addr >= mem_top then
-    None
+  if addr >= mem_bot && addr < mem_top then
+    Some (Int64.to_int (Int64.sub addr mem_bot))
   else
-    let offset = Int64.sub addr mem_bot in
-    Some (Int64.to_int offset)
+    None
 
-(* Simulates one step of the machine:
-    - fetch the instruction at %rip
-    - compute the source and/or destination information from the operands
-    - simulate the instruction semantics
-    - update the registers and/or memory appropriately
-    - set the condition flags
-*)
+
+let read_mem (m:mach) (addr:int64) : int64 =
+  match map_addr addr with
+  | None -> raise X86lite_segfault
+  | Some i ->
+    let bytes = [m.mem.(i); m.mem.(i+1); m.mem.(i+2); m.mem.(i+3);
+                 m.mem.(i+4); m.mem.(i+5); m.mem.(i+6); m.mem.(i+7)] in
+    int64_of_sbytes bytes
+
+let write_mem (m:mach) (addr:int64) (v:int64) : unit =
+  match map_addr addr with
+  | None -> raise X86lite_segfault
+  | Some i ->
+    let bytes = sbytes_of_int64 v in
+    List.iteri (fun j b -> m.mem.(i+j) <- b) bytes
+
+let read_operand (m:mach) (op:operand) : int64 =
+  match op with
+  | Imm (Lit i)-> i                    
+  | Reg r-> m.regs.(rind r)            
+  | Ind1 (Lit i)-> read_mem m i        
+  | Ind2 r-> read_mem m m.regs.(rind r)
+  | Ind3 (Lit i, r)-> read_mem m (Int64.add i m.regs.(rind r))  
+  | _ -> failwith "invalid operand"
+
+let write_operand (m:mach) (op:operand) (v:int64) : unit =
+  match op with
+  | Reg r -> m.regs.(rind r) <- v
+  | Ind1 (Lit i)-> write_mem m i v
+  | Ind2 r -> write_mem m m.regs.(rind r) v
+  | Ind3 (Lit i, r)-> write_mem m (Int64.add i m.regs.(rind r)) v
+  | _ -> failwith "cannot write to this operand"
+
+
+(*Abdullah + Juan Helper Functions*)
+let interp_negq (v:int64) : int64 = Int64.neg v
+
+let interp_incq (v:int64) : int64 = Int64.add v 1L
+
+let interp_decq (v:int64) : int64 = Int64.sub v 1L
+
+let interp_addq (src:int64) (dest:int64) : int64 = Int64.add dest src
+
+let interp_subq (src:int64) (dest:int64) : int64 = Int64.sub dest src
+
+let interp_leaq (m:mach) (op:operand) : int64 =
+  match op with
+  | Ind1 (Lit i) -> i
+  | Ind2 r -> m.regs.(rind r)
+  | Ind3 (Lit i, r) -> Int64.add i m.regs.(rind r)
+  | _ -> failwith "leaq: invalid operand"
+
+let interp_pushq (m:mach) (v:int64) : unit =
+  let new_rsp = Int64.sub m.regs.(rind Rsp) 8L in
+  m.regs.(rind Rsp) <- new_rsp;
+  write_mem m new_rsp v
+
+let interp_movq (v:int64) : int64 = v
+
+(*Flag Functions Juan*)
+
+let set_flags_add (m:mach) (src:int64) (dest:int64) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L;
+  m.flags.fo <- ((Int64.compare src 0L >= 0) = (Int64.compare dest 0L >= 0))
+             && ((Int64.compare src 0L >= 0) <> (Int64.compare result 0L >= 0))
+
+let set_flags_sub (m:mach) (src:int64) (dest:int64) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L;
+  m.flags.fo <- ((Int64.compare dest 0L >= 0) <> (Int64.compare src 0L >= 0))
+             && ((Int64.compare dest 0L >= 0) <> (Int64.compare result 0L >= 0))
+
+let set_flags_neg (m:mach) (src:int64) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L;
+  m.flags.fo <- src = Int64.min_int
+
+
+
+
+
+
+
+
+let interp_imulq (s:int64) (d:int64) : int64 = Int64.mul s d
+
+let interp_shlq (amt:int64) (d:int64) : int64 =
+  let shift = Int64.to_int amt in
+  if shift = 0 then d
+  else Int64.shift_left d shift
+
+let interp_xorq (s:int64) (d:int64) : int64 = Int64.logxor s d
+
+let interp_orq (s:int64) (d:int64) : int64 = Int64.logor s d
+
+let interp_andq (s:int64) (d:int64) : int64 = Int64.logand s d
+
+let interp_popq (m:mach) : int64 =
+  let rsp = m.regs.(rind Rsp) in
+  let v = read_mem m rsp in
+  m.regs.(rind Rsp) <- Int64.add rsp 8L;
+  v
+
+(*Flag Functions Abdullah*)
+
+let set_flags_imul (m:mach) (s:int64) (d:int64) (result:int64) : unit =
+  let of_flag =
+    let a = Int64.to_float s in
+    let b = Int64.to_float d in
+    let exact = a *. b in
+    let back = Int64.to_float result in
+    exact <> back
+  in
+  m.flags.fo <- of_flag;
+  m.flags.fs <- result < 0L;
+  m.flags.fz <- result = 0L
+
+let set_flags_shlq (m:mach) (amt:int64) (d:int64) (result:int64) : unit =
+  let shift = Int64.to_int amt in
+  if shift <> 0 then begin
+    m.flags.fs <- result < 0L;
+    m.flags.fz <- result = 0L;
+    if shift = 1 then
+      m.flags.fo <- (result < 0L) <> (d < 0L)
+  end
+
+let set_flags_logic (m:mach) (result:int64) : unit =
+  m.flags.fo <- false;
+  m.flags.fs <- result < 0L;
+  m.flags.fz <- result = 0L
+
+(*Step Function*)
+
 let step (m:mach) : unit =
-failwith "step unimplemented"
+  let rip = m.regs.(rind Rip) in
+  let ins = match map_addr rip with
+    | None -> raise X86lite_segfault
+    | Some i -> match m.mem.(i) with
+      | InsB0 ins -> ins
+      | _ -> failwith "step: expected instruction"
+  in
+  m.regs.(rind Rip) <- Int64.add rip ins_size;
+  match ins with
 
-(* Runs the machine until the rip register reaches a designated
-   memory address. Returns the contents of %rax when the 
-   machine halts. *)
+  | (Movq, [src; dest]) ->
+    let result = interp_movq (read_operand m src) in
+    write_operand m dest result
+
+
+  | (Negq, [dest]) ->
+    let s = read_operand m dest in
+    let result = interp_negq s in
+    write_operand m dest result;
+    set_flags_neg m s result
+
+
+  | (Incq, [dest]) ->
+    let d = read_operand m dest in
+    let result = interp_incq d in
+    write_operand m dest result;
+    set_flags_add m 1L d result
+
+
+  | (Decq, [dest]) ->
+    let d = read_operand m dest in
+    let result = interp_decq d in
+    write_operand m dest result;
+    set_flags_sub m 1L d result
+
+
+  | (Addq, [src; dest]) ->
+    let s = read_operand m src in
+    let d = read_operand m dest in
+    let result = interp_addq s d in
+    write_operand m dest result;
+    set_flags_add m s d result
+
+
+  | (Subq, [src; dest]) ->
+    let s = read_operand m src in
+    let d = read_operand m dest in
+    let result = interp_subq s d in
+    write_operand m dest result;
+    set_flags_sub m s d result
+
+
+  | (Leaq, [src; dest]) ->
+    let result = interp_leaq m src in
+    write_operand m dest result
+
+
+  | (Pushq, [src]) ->
+    interp_pushq m (read_operand m src)
+
+
+  | (Imulq, [src; dest]) ->
+    let s = read_operand m src in
+    let d = read_operand m dest in
+    let result = interp_imulq s d in
+    write_operand m dest result;
+    set_flags_imul m s d result
+
+
+  | (Shlq, [amt; dest]) ->
+    let a = read_operand m amt in
+    let d = read_operand m dest in
+    let result = interp_shlq a d in
+    write_operand m dest result;
+    set_flags_shlq m a d result
+
+
+  | (Xorq, [src; dest]) ->
+    let s = read_operand m src in
+    let d = read_operand m dest in
+    let result = interp_xorq s d in
+    write_operand m dest result;
+    set_flags_logic m result
+
+
+  | (Orq, [src; dest]) ->
+    let s = read_operand m src in
+    let d = read_operand m dest in
+    let result = interp_orq s d in
+    write_operand m dest result;
+    set_flags_logic m result
+
+
+  | (Andq, [src; dest]) ->
+    let s = read_operand m src in
+    let d = read_operand m dest in
+    let result = interp_andq s d in
+    write_operand m dest result;
+    set_flags_logic m result
+
+
+  | (Popq, [dest]) ->
+    let v = interp_popq m in
+    write_operand m dest v
+  | _ -> failwith "step: unimplemented instruction"
+
+
+  
 let run (m:mach) : int64 = 
   while m.regs.(rind Rip) <> exit_addr do step m done;
   m.regs.(rind Rax)
