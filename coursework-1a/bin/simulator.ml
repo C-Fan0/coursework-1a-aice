@@ -163,29 +163,117 @@ let map_addr (addr:quad) : int option =
   else
     None
 
-let rec length l = 
-  match l with
-  | [] -> 0
-  | t :: x -> 1 + length x
-
-let rec elements_2 (l : quad list) : int64 * int64 = 
-  match l with
-  | [op1; op2] -> (op1, op2)
-  | _ -> failwith "incorrect operand count"
-
-let rec elements_1 (l : quad list) : int64  = 
-  match l with
-  | [op1] -> (op1)
-  | _ -> failwith "incorrect operand count"
 
 
-let subq_func (machine : mach) (operands : imm list) : int64= 
-  (*for the other guys to do*)
-  failwith "unimplemented subq"
 
-let cmpq_func (machine : mach) (operands : quad list) : int64= 
+  (* juan's code*)
+let read_mem (m:mach) (addr:int64) : int64 =
+  match map_addr addr with(*get addr. remove some from some i*)
+  | None -> raise X86lite_segfault
+  | Some i ->
+    let bytes = [m.mem.(i); m.mem.(i+1); m.mem.(i+2); m.mem.(i+3);
+                 m.mem.(i+4); m.mem.(i+5); m.mem.(i+6); m.mem.(i+7)] in
+    int64_of_sbytes bytes 
+    (*it's stored in 8 byte chunks, so despite i+1 to i+7 just being InsFrag
+    padding, y*)
+  
+let write_mem (m:mach) (addr:int64) (v:int64) : unit =
+  match map_addr addr with
+  | None -> raise X86lite_segfault
+  | Some i ->
+    let bytes = sbytes_of_int64 v in
+    List.iteri (fun j b -> m.mem.(i+j) <- b) bytes 
+    (* see this:
+    m.mem.(i+0) <- byte 0
+    m.mem.(i+1) <- byte 1
+    m.mem.(i+2) <- byte 2
+    j is an iterator starting from one
+    at the same time it iterates across bytes, defined here as 'b' in the
+    anonymous function (fun j b -> ...)
+
+    i is a constant, which is the first byte location
+    we store values in 64 bit, which is 8 bytes, so we iterate across
+    all 8.
+    *)
+
+(*Interpretration of operands*)
+let read_operand (m:mach) (op:operand) : int64 =
+  match op with (* matches the cases*)
+  | Imm (Lit i)-> i              (* immediate *)      
+  | Reg r-> m.regs.(rind r)         (*get reg value*)   
+  | Ind1 (Lit i)-> read_mem m i        (* get memory at immediate*)
+  | Ind2 r-> read_mem m m.regs.(rind r) (* get memory from number in register *)
+  | Ind3 (Lit i, r)-> read_mem m (Int64.add i m.regs.(rind r))  (* get memory from number in register + immediate offset*)
+  | _ -> failwith "invalid operand"
+
+let write_operand (m:mach) (op:operand) (v:int64) : unit =
+  match op with (*same matching as read_operand, see above*)
+  | Reg r -> m.regs.(rind r) <- v
+  | Ind1 (Lit i)-> write_mem m i v
+  | Ind2 r -> write_mem m m.regs.(rind r) v
+  | Ind3 (Lit i, r)-> write_mem m (Int64.add i m.regs.(rind r)) v
+  | _ -> failwith "cannot write to this operand"
+
+
+(*The arithmetic functions are basically one line so might directly add to step idk discuss on wednesday*)
+let interp_negq (v:int64) : int64 =
+  Int64.neg v
+
+let interp_incq (v:int64) : int64 =
+  Int64.add v 1L
+
+let interp_decq (v:int64) : int64 =
+  Int64.sub v 1L
+  
+let interp_addq (src:int64) (dest:int64) : int64 =
+  Int64.add dest src
+
+let interp_subq (src:int64) (dest:int64) : int64 =
+  Int64.sub dest src
+
+let interp_leaq (m:mach) (op:operand) : int64 =
+  match op with
+  | Ind1 (Lit i) -> i
+  | Ind2 r-> m.regs.(rind r)
+  | Ind3 (Lit i, r)-> Int64.add i m.regs.(rind r)
+  | _ -> failwith "leaq: invalid operand"
+
+let interp_pushq (m:mach) (v:int64) : unit =
+  let new_rsp = Int64.sub m.regs.(rind Rsp) 8L in
+  m.regs.(rind Rsp) <- new_rsp;
+  write_mem m new_rsp v
+
+let interp_movq (v:int64) : int64 =
+  v
+
+let set_flags (m:mach) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L
+
+let set_flags_add (m:mach) (src:int64) (dest:int64) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L;
+  m.flags.fo <- ((Int64.compare src 0L >= 0) = (Int64.compare dest 0L >= 0))
+             && ((Int64.compare src 0L >= 0) <> (Int64.compare result 0L >= 0))
+
+let set_flags_sub (m:mach) (src:int64) (dest:int64) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L;
+  m.flags.fo <- ((Int64.compare dest 0L >= 0) <> (Int64.compare src 0L >= 0))
+             && ((Int64.compare dest 0L >= 0) <> (Int64.compare result 0L >= 0))
+
+let set_flags_neg (m:mach) (src:int64) (result:int64) : unit =
+  m.flags.fz <- result = 0L;
+  m.flags.fs <- result < 0L;
+  m.flags.fo <- src = Int64.min_int
+
+
+
+(*seb's functions*)
+
+let cmpq_func (machine : mach) (operands : (quad * quad)) : unit= 
   (* count operands, if too many *)
-  let (op1, op2) = elements_2 operands in
+  let (op1, op2) = operands in
   let result = Int64_overflow.sub op2 op1 in
 
   (*fo flag*)
@@ -201,105 +289,55 @@ let cmpq_func (machine : mach) (operands : quad list) : int64=
   if (result.value < 0L) then
     machine.flags.fs <- true
   else
-    machine.flags.fs <- false;
+    machine.flags.fs <- false
 
-  0L
 
-let setb_func (machine : mach) (operands : imm list) : int64=
-  (*operand 1 is condition code, second is src*)
+let setb_func (machine : mach) (operands : cnd * quad) : int64=
+  let (condition, dest) = operands in
+  let bytes = sbytes_of_int64 (read_mem machine dest) in (* get bytes *)
+  let char_value = if (interp_cnd machine.flags condition) then  '\001' else '\000' in (*interpret condition*)
+  match bytes with (* replace least significant byte with 1 or 0 *)
+  | _ :: t -> int64_of_sbytes (Byte (char_value) :: t)
+  | [] -> failwith "no value for setb to manipulate"
+
+
+let popq_func (machine : mach) (operands: quad) : unit = 
   failwith "unimplemented"
 
-let jmp_func (machine : mach) (operands : imm list) : int64=
-  failwith "unimplemented"
-
-let jmp_cond_func (machine : mach) (operands : imm list) : int64=
-  failwith "unimplemented"
-
-let callq_func (machine : mach) (operands : imm list) : int64=
-  failwith "unimplemented"
+let retq_func (machine : mach)  : unit=
+  popq_func machine machine.regs.(rind Rip)
 
 
 
-  (* juan's code*)
-let read_mem (m:mach) (addr:int64) : int64 =
-  match map_addr addr with
-  | None -> raise X86lite_segfault
-  | Some i ->
-    let bytes = [m.mem.(i); m.mem.(i+1); m.mem.(i+2); m.mem.(i+3);
-                 m.mem.(i+4); m.mem.(i+5); m.mem.(i+6); m.mem.(i+7)] in
-    int64_of_sbytes bytes
-let write_mem (m:mach) (addr:int64) (v:int64) : unit =
-  match map_addr addr with
-  | None -> raise X86lite_segfault
-  | Some i ->
-    let bytes = sbytes_of_int64 v in
-    List.iteri (fun j b -> m.mem.(i+j) <- b) bytes
+let jmp_func (machine : mach) (operands : quad) : int64=
+  let src = operands in
+  machine.regs.(rind Rip) <- src; (*you can write to arrays*)
+  src  (*return value*)
 
-(*Interpretration of operands*)
-let read_operand (m:mach) (op:operand) : int64 =
-  match op with
-  | Imm (Lit i)-> i                    
-  | Reg r-> m.regs.(rind r)            
-  | Ind1 (Lit i)-> read_mem m i        
-  | Ind2 r-> read_mem m m.regs.(rind r)
-  | Ind3 (Lit i, r)-> read_mem m (Int64.add i m.regs.(rind r))  
-  | _ -> failwith "invalid operand"
-let write_operand (m:mach) (op:operand) (v:int64) : unit =
-  match op with
-  | Reg r -> m.regs.(rind r) <- v
-  | Ind1 (Lit i)-> write_mem m i v
-  | Ind2 r -> write_mem m m.regs.(rind r) v
-  | Ind3 (Lit i, r)-> write_mem m (Int64.add i m.regs.(rind r)) v
-  | _ -> failwith "cannot write to this operand"
+let jmp_cond_func (machine : mach) (operands : (cnd *quad )) : int64=
+  let (condition, src) =  operands in (*modify rip is fairly easy, assign to correct register location using rind*)
+  if (interp_cnd machine.flags condition) then (*interpret condition*)
+    jmp_func machine src 
+  else 
+    -1L (* condition not met, impossible value returned *)
 
-
-(*The arithmetic functions are basically one line so might directly add to step idk discuss on wednesday*)
-let interp_negq (v:int64) : int64 =
-  Int64.neg v
-let interp_incq (v:int64) : int64 =
-  Int64.add v 1L
-let interp_decq (v:int64) : int64 =
-  Int64.sub v 1L
-let interp_addq (src:int64) (dest:int64) : int64 =
-  Int64.add dest src
-let interp_subq (src:int64) (dest:int64) : int64 =
-  Int64.sub dest src
-let interp_leaq (m:mach) (op:operand) : int64 =
-  match op with
-  | Ind1 (Lit i) -> i
-  | Ind2 r-> m.regs.(rind r)
-  | Ind3 (Lit i, r)-> Int64.add i m.regs.(rind r)
-  | _ -> failwith "leaq: invalid operand"
-let interp_pushq (m:mach) (v:int64) : unit =
-  let new_rsp = Int64.sub m.regs.(rind Rsp) 8L in
-  m.regs.(rind Rsp) <- new_rsp;
-  write_mem m new_rsp v
-let interp_movq (v:int64) : int64 =
-  v
-let set_flags (m:mach) (result:int64) : unit =
-  m.flags.fz <- result = 0L;
-  m.flags.fs <- result < 0L
-let set_flags_add (m:mach) (src:int64) (dest:int64) (result:int64) : unit =
-  m.flags.fz <- result = 0L;
-  m.flags.fs <- result < 0L;
-  m.flags.fo <- ((Int64.compare src 0L >= 0) = (Int64.compare dest 0L >= 0))
-             && ((Int64.compare src 0L >= 0) <> (Int64.compare result 0L >= 0))
-let set_flags_sub (m:mach) (src:int64) (dest:int64) (result:int64) : unit =
-  m.flags.fz <- result = 0L;
-  m.flags.fs <- result < 0L;
-  m.flags.fo <- ((Int64.compare dest 0L >= 0) <> (Int64.compare src 0L >= 0))
-             && ((Int64.compare dest 0L >= 0) <> (Int64.compare result 0L >= 0))
-let set_flags_neg (m:mach) (src:int64) (result:int64) : unit =
-  m.flags.fz <- result = 0L;
-  m.flags.fs <- result < 0L;
-  m.flags.fo <- src = Int64.min_int
+let callq_func (machine : mach) (src : quad) : unit=
+  (* 
+  pseudo code:
+    pushq %rip
+    rip <- src 
+    ^ sets current instruction pointer to start of function 'src'
+  *)
+  let rsp = machine.regs.(rind Rsp) in
+  interp_pushq machine machine.regs.(rind Rip);  
+  (* pushq already decrements rsp for you*)
+  machine.regs.(rind Rip) <- src; (* increase stack size, stack grows by decrementing *)
+  ()
 
 
 
-let retq_func (machine : mach) (operands : imm list) : int64=
-  failwith "unimplemented"
 
-(* Simulates one step of the machine:
+  (* Simulates one step of the machine:
     - fetch the instruction at %rip
     - compute the source and/or destination information from the operands
     - simulate the instruction semantics
@@ -336,16 +374,27 @@ let step (m:mach) : unit =
   execution_func() if you guys think thats cleaner. Also note that Im using specific condition flag functions for each case.
   We can discuss more during about how we want to tweak it during Wednesday's lab*)
 
-  let rip = m.regs.(rind Rip) in
-  let ins = match map_addr rip with
+
+  let rip = m.regs.(rind Rip) in (*get current instruction pointer *)
+  let ins = match map_addr rip with (* get current instruction via pointer*)
     | None -> raise X86lite_segfault
-    | Some i -> match m.mem.(i) with
-      | InsB0 ins -> ins
+    | Some i -> match m.mem.(i) with (*unwrap the 'some' in some i*)
+      | InsB0 ins -> ins (* this is the current saved instrution *)
       | _ -> failwith "step: expected instruction"
   in
-  m.regs.(rind Rip) <- Int64.add rip ins_size;
+  m.regs.(rind Rip) <- Int64.add rip ins_size; 
+  (* get ready for next instruction*)
 
-  match ins with
+  match ins with (*format is, for each instruction:
+  0. unpack ins via match ins with | (instruct type, [operands])
+  1. then, based on operand (imm, reg pointer, etc...) get the actual value.
+  e.g. for most that's just one, dest (Negq, Movq), although some like add 
+  need two operands, e.g. addq is actually dest = src_val + dest_val
+  2. result = do_command
+  3. write to memory location (dest)
+  4. set flags
+
+  *)
   | (Movq, [src; dest]) ->
     let result = interp_movq (read_operand m src) in
     write_operand m dest result
@@ -369,7 +418,7 @@ let step (m:mach) : unit =
     set_flags_sub m 1L d result
 
   | (Addq, [src; dest]) ->
-    let s = read_operand m src in
+    let s = read_operand m src in 
     let d = read_operand m dest in
     let result = interp_addq s d in
     write_operand m dest result;
@@ -389,8 +438,7 @@ let step (m:mach) : unit =
   | (Pushq, [src]) ->
     interp_pushq m (read_operand m src)
 
-  | _ -> failwith "step: ehhhh ask Seb or Abdullah"
-
+  | _ -> failwith "step: ehhhh ask Seb or Abdullah"unit
 
 
 
