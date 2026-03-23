@@ -8,8 +8,6 @@ open Asm
 (* NOTE: Your "submitted public test case" for Part III belongs over in the
    shared git submodule.
 *)
-(* Test that data labels are resolved correctly when text and data are interleaved.
-   This program loads a value from a data label into %rax and returns it. *)
 
 let mov_ri =
   test_machine
