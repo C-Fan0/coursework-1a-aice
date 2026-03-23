@@ -111,7 +111,7 @@ let provided_tests : suite = [
     ("gcd_12_8",  program_test gcd_prog 4L);
     (* gcd(27, 9) = 9 — one is a multiple of the other *)
     ("gcd_27_9",  program_test (gcd_with_inputs 27 9) 9L);
-    (* gcd(48, 18) = 6 *)make
+    (* gcd(48, 18) = 6 *)
     ("gcd_48_18", program_test (gcd_with_inputs 48 18) 6L);
   ]);
 
