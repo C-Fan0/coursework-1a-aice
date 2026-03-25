@@ -357,29 +357,6 @@ let callq_func (m:mach) (src:int64) : unit =
     - set the condition flags
 *)
 let step (m:mach) : unit =  
-  (*psuedo code:*)(*
-  fetch instruction:
-  let INsB0 instruction = fetch(%rip) in <- fetch instruction, e.g. mach.mem.(address of instruct) to get the instruction, then access within the instruction as opcode * operand list
-
-  registers:
-  let operand list operands =  obtain_registers(instruction) in
-  let opcode opcode_temp = obtain_opcode(instruction) in
-
-  simulate instruction execution (aka semantics):
-  let int64 result = execution_func(m, opcode_temp, operands) in <- will require more work/breaking down, could just be a simple interface though
-  Not sure on what the return of execution_func should be yet, or if m needs to be passed in
-
-  update registers and memory:
-  let update_machine(m, results, operands) in 
-
-  let update_condition_flags(m,results) in
-  () <- must return (), which is unit
-  *)
-  (* Fetch instruction at %rip *)
-  (*From Juan: This is what I made to test my functions. We can switch to having specific functions like fetch() and 
-  execution_func() if you guys think thats cleaner. 
-    Instead of update_machine and update condition flags, I just use write_operand and specific condition flags function for each case. 
-  We can discuss more during about how we want to tweak it during Wednesday's lab*)
 
   let rip = m.regs.(rind Rip) in
   let ins = match map_addr rip with
